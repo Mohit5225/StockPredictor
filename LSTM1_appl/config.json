@@ -1,0 +1,6 @@
+{
+    "default_stocks": ["AAPL", "GOOG", "MSFT"],
+    "default_future_steps": 10,
+    "default_time_unit": "days"
+  }
+  
