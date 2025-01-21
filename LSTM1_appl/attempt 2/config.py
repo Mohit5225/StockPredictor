@@ -40,17 +40,30 @@ class DataConfig:
     train_split: float = field(default=0.8)
     val_split: float = field(default=0.1)
     batch_size: int = 32
-
+     # Add multi-stock training config
+    enable_multi_stock: bool = True
+    stock_combinations: List[List[str]] = field(default_factory=lambda: [
+        ["AAPL", "MSFT", "GOOGL"],  # Tech giants group
+        ["NVDA", "AMD"],# Semiconductor group
+          ["TSLA"] ,
+        ["META"] # Meta Platforms
+    ]) 
+    # Add sector encoding
+    sector_encoding: Dict[Sector, int] = field(default_factory=lambda: {
+        Sector.TECH: 0,
+        Sector.AUTO: 1,
+        Sector.FINANCE: 2
+    })
     # Feature Management - More organized than Todoroki's dual quirk
     base_features: List[str] = field(default_factory=lambda: [
         "Open", "High", "Low", "Close", "Volume"
     ])
     
     derived_features: List[str] = field(default_factory=lambda: [
-        "daily_return", "volatility"
+        "volatility" , "daily_return" 
     ])
-
-    
+  
+    @property
     def get_active_features(self) -> List[str]:
         active_indicators = [
             key for key, is_active in self.technical_indicators.items() if is_active
@@ -107,7 +120,7 @@ class DataConfig:
         if self.batch_size <= 0:
             raise ValueError("Negative batch size? Are you trying to train backwards in time?")
 
-    def get_active_features(self, symbol: str) -> List[str]:
+    def get_symbol_active_features(self, symbol: str) -> List[str]:
         """Get features like you're assembling the Infinity Gauntlet"""
         metadata = self.stock_metadata[symbol]
         features = self.base_features + self.derived_features
@@ -119,12 +132,13 @@ class DataConfig:
         # Add enabled technical indicators
         features.extend([ind for ind, enabled in self.technical_indicators.items() if enabled])
         
-        return list(set(features))  # No duplicate features, we're not Naruto's shadow clones
+        return list(dict.fromkeys(features))  # Preserves order, removes duplicates
+
 
     def prepare_stock_data(self, symbol: str, data: pd.DataFrame) -> pd.DataFrame:
         """Process data like you're crafting the perfect jutsu"""
         metadata = self.stock_metadata[symbol]
-        df = data.copy()  # Never modify the original, young padawan
+        df = data.copy()  # Never modify the original, young padawan    
         
         # Apply filters based on market cap
         if metadata.market_cap == MarketCap.SMALL:
@@ -145,10 +159,21 @@ class ModelConfig:
     epochs: int = 100
     patience: int = 5
     reduce_lr_factor: float = 0.2
+    learning_rate: float = 0.001
+    lstm_units: list = field(default_factory=lambda: [64, 32])  # Example default units
+    dropout_rates: list = field(default_factory=lambda: [0.2, 0.3])  # Example dropout rates
+    output_dim: int = 3  # Default to High, Low, Close
+    l1_regularizer: float = 1e-5
+    l2_regularizer: float = 1e-4
 
     def __post_init__(self):
         if self.patience >= self.epochs:
-            logger.warning("Patience > epochs? Your model's more patient than Buddha!")
+            raise ValueError("Patience should be less than total epochs.")
+        if not (0 < self.reduce_lr_factor < 1):
+            raise ValueError("reduce_lr_factor must be between 0 and 1.")
+        if len(self.lstm_units) != len(self.dropout_rates):
+            raise ValueError("lstm_units and dropout_rates lengths must match.")
+
 
 @dataclass
 class Config:
@@ -161,16 +186,3 @@ class Config:
     def __post_init__(self):
         self.base_path.mkdir(parents=True, exist_ok=True)
         self.model_path.mkdir(parents=True, exist_ok=True)
-
-# Usage that would make even Levi proud of its cleanliness
-if __name__ == "__main__":
-    config = Config()
-    symbol = "TSLA"
-    
-    # Get features specific to TSLA
-    features = config.data.get_active_features(symbol)
-    print(f"Features for {symbol}: {features}")
-    
-    # Load and prepare data
-    raw_data = pd.DataFrame()  # Your data loading logic here
-    processed_data = config.data.prepare_stock_data(symbol, raw_data)

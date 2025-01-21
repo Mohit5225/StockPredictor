@@ -55,9 +55,11 @@ class DataFetcher:
         if missing_features:
             raise ValueError(f"Fetched data is missing required base features: {missing_features}")
 
+        
         # Add derived features
         if "daily_return" in self.config.derived_features:
             df['daily_return'] = df['Close'].pct_change()
+         
         if "volatility" in self.config.derived_features:
             df['volatility'] = df['daily_return'].rolling(window=5).std()
 

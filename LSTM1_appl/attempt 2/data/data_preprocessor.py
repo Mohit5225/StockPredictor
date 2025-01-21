@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import Tuple
-from sklearn.preprocessing import MinMaxScaler  
+from sklearn.preprocessing import MinMaxScaler
 from config import DataConfig
 
 class TechnicalIndicators:
@@ -26,14 +26,6 @@ class TechnicalIndicators:
         return macd, signal
 
     @staticmethod
-    def calculate_bollinger_bands(df: pd.DataFrame, window: int = 20) -> Tuple[pd.Series, pd.Series]:
-        ma = df['Close'].rolling(window=window).mean()
-        std = df['Close'].rolling(window=window).std()
-        upper = ma + 2 * std
-        lower = ma - 2 * std
-        return upper, lower
-
-    @staticmethod
     def calculate_atr(df: pd.DataFrame, window: int = 14) -> pd.Series:
         high_low = df['High'] - df['Low']
         high_close = abs(df['High'] - df['Close'].shift(1))
@@ -45,9 +37,9 @@ class TechnicalIndicators:
     def calculate_all(df: pd.DataFrame) -> pd.DataFrame:
         df['RSI'] = TechnicalIndicators.calculate_rsi(df)
         df['MACD'], df['MACD_Signal'] = TechnicalIndicators.calculate_macd(df)
-        df['BB_Upper'], df['BB_Lower'] = TechnicalIndicators.calculate_bollinger_bands(df)
         df['ATR'] = TechnicalIndicators.calculate_atr(df)
         return df
+
 
 class DataPreprocessor:
     """The Data Transformation Dojo"""
@@ -56,28 +48,35 @@ class DataPreprocessor:
         self.scaler = MinMaxScaler()
 
     def preprocess(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, MinMaxScaler]:
+        # Step 1: Calculate Technical Indicators
         df = TechnicalIndicators.calculate_all(df)
 
+        # Step 2: Verify Required Features
         required_features = set(self.config.get_active_features())
         if not required_features.issubset(df.columns):
             missing_features = required_features - set(df.columns)
             raise ValueError(f"Preprocessed data is missing required features: {missing_features}")
 
-
-        # Drop NaN values
+        # Step 3: Drop NaN values
         df.dropna(inplace=True)
 
-        # Scale selected features
-        selected_features = self.config.features
-        scaled_data = self.scaler.fit_transform(df[selected_features])
+        # Step 4: Scale Selected Features
+        scaled_features = [f for f in self.config.base_features if 'return' not in f]  # Don't scale returns
+        raw_features = [f for f in self.config.base_features if 'return' in f]
 
-        # Create sequences
-        X, y = self._create_sequences(scaled_data)
+        scaled_data = self.scaler.fit_transform(df[scaled_features])
+        raw_data = df[raw_features].values
+
+        # Combine Scaled and Raw Features
+        combined_data = np.hstack([raw_data, scaled_data])
+
+        # Step 5: Create Sequences
+        X, y = self._create_sequences(combined_data)
         return X, y, self.scaler
 
     def _create_sequences(self, data: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         X, y = [], []
         for i in range(self.config.time_steps, len(data)):
             X.append(data[i - self.config.time_steps:i])
-            y.append(data[i, :4])  # Predicting Open, High, Low, Close
+            y.append(data[i, :3])  # Predicting High, Low, Close
         return np.array(X), np.array(y)
