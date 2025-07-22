@@ -9,8 +9,8 @@ class ModelTrainer:
         self.config = config
     
     def train(self, model: tf.keras.Model, 
-              X_train: np.ndarray, y_train: np.ndarray,
-              X_val: np.ndarray, y_val: np.ndarray) -> Dict[str, Any]:
+              X_train: Dict[str, np.ndarray], y_train: np.ndarray,
+              X_val: Dict[str, np.ndarray], y_val: np.ndarray) -> Dict[str, Any]:
         
         # Ensuring data is properly preprocessed
         self._check_preprocessed_data(X_train, X_val)
@@ -46,10 +46,14 @@ class ModelTrainer:
         # Return or log metrics
         return history.history, {"train_loss": train_loss, "val_loss": val_loss}
 
-    def _check_preprocessed_data(self, X_train: np.ndarray, X_val: np.ndarray) -> None:
+    def _check_preprocessed_data(self, X_train: Dict[str, np.ndarray], X_val: Dict[str, np.ndarray]) -> None:
         """Ensure data is properly scaled or normalized"""
-        if np.any(np.isnan(X_train)) or np.any(np.isnan(X_val)):
-            raise ValueError("Training and validation data contain NaN values. Please ensure data is preprocessed correctly.")
-        if not (np.all((0 <= X_train) & (X_train <= 1)) and np.all((0 <= X_val) & (X_val <= 1))):
-            raise ValueError("Expected scaled data within range [0, 1]. Please ensure data is preprocessed correctly.")
-
+        for key in X_train:
+            
+            print(f"{key} train min/max:", X_train[key].min(), X_train[key].max())
+            print(f"{key} val min/max:", X_val[key].min(), X_val[key].max())
+            if np.any(np.isnan(X_train[key])) or np.any(np.isnan(X_val[key])):
+                raise ValueError("Training and validation data contain NaN values. Please ensure data is preprocessed correctly.")
+            if key != 'stock_input':
+                if not (np.all((0 <= X_train[key]) & (X_train[key] <= 1)) and np.all((0 <= X_val[key]) & (X_val[key] <= 1))):
+                    raise ValueError("Expected scaled data within range [0, 1]. Please ensure data is preprocessed correctly.")

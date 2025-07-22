@@ -34,7 +34,7 @@ class StockMetadata:
 @dataclass
 class DataConfig:
     # Base Configuration - As immutable as Saitama's training routine
-    api_source: Literal["yahoo", "alphavantage"] = "yahoo"
+    api_source: str = "yahoo"
     api_key: Optional[str] = None
     time_steps: int = 30
     train_split: float = field(default=0.8)
@@ -42,18 +42,17 @@ class DataConfig:
     batch_size: int = 32
      # Add multi-stock training config
     enable_multi_stock: bool = True
-    stock_combinations: List[List[str]] = field(default_factory=lambda: [
-        ["AAPL", "MSFT", "GOOGL"],  # Tech giants group
-        ["NVDA", "AMD"],# Semiconductor group
-          ["TSLA"] ,
-        ["META"] # Meta Platforms
-    ]) 
-    # Add sector encoding
-    sector_encoding: Dict[Sector, int] = field(default_factory=lambda: {
-        Sector.TECH: 0,
-        Sector.AUTO: 1,
-        Sector.FINANCE: 2
+    # Embedding Configuration
+    stock_identifier_mapping: Dict[str, int] = field(default_factory=lambda: {
+        "AAPL": 0,
+        "TSLA": 1,
+        "MSFT": 2,
+        "NVDA": 3,
+        "GOOGL": 4,
+        "AMD": 5,
+        "META": 6
     })
+     
     # Feature Management - More organized than Todoroki's dual quirk
     base_features: List[str] = field(default_factory=lambda: [
         "Open", "High", "Low", "Close", "Volume"
@@ -74,7 +73,7 @@ class DataConfig:
     technical_indicators: Dict[str, bool] = field(default_factory=lambda: {
         "RSI": True,
         "MACD": True,
-        "BBANDS": True,
+        "BBANDS": False,
         "ATR": True,
         "OBV": False
     })
@@ -165,6 +164,7 @@ class ModelConfig:
     output_dim: int = 3  # Default to High, Low, Close
     l1_regularizer: float = 1e-5
     l2_regularizer: float = 1e-4
+    batch_size: int = 32
 
     def __post_init__(self):
         if self.patience >= self.epochs:

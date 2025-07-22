@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from typing import Tuple
+from typing import Tuple, Dict
 from sklearn.preprocessing import MinMaxScaler
 from config import DataConfig
 
@@ -28,11 +28,10 @@ class TechnicalIndicators:
     @staticmethod
     def calculate_atr(df: pd.DataFrame, window: int = 14) -> pd.Series:
         high_low = df['High'] - df['Low']
-        high_close = abs(df['High'] - df['Close'].shift(1))
-        low_close = abs(df['Low'] - df['Close'].shift(1))
-        true_range = high_low.combine(high_close, max).combine(low_close, max)
-        return true_range.rolling(window=window).mean()
-
+        high_close = (df['High'] - df['Close'].shift(1)).abs()
+        low_close = (df['Low'] - df['Close'].shift(1)).abs()
+        true_range = np.maximum.reduce([high_low, high_close, low_close])
+        return pd.Series(true_range).rolling(window=window).mean()
     @staticmethod
     def calculate_all(df: pd.DataFrame) -> pd.DataFrame:
         df['RSI'] = TechnicalIndicators.calculate_rsi(df)
@@ -42,41 +41,75 @@ class TechnicalIndicators:
 
 
 class DataPreprocessor:
-    """The Data Transformation Dojo"""
     def __init__(self, config: DataConfig):
         self.config = config
-        self.scaler = MinMaxScaler()
+        self.feature_scaler = MinMaxScaler()
+        self.target_scaler = MinMaxScaler()
+    
+    def _process_single_stock(self, stock_data: pd.DataFrame) -> pd.DataFrame:
+        return stock_data
+    
+    def preprocess_multiple(self, stock_data: Dict[str, pd.DataFrame]) -> Tuple[Dict[str, np.ndarray], np.ndarray, MinMaxScaler, MinMaxScaler]:
+        """Process multiple stocks together"""
+        combined_features = []
+        combined_targets = []
+        stock_ids = []
+        
+        feature_names = self.config.get_active_features
+        
+        for symbol, df in stock_data.items():
+            # Process each stock
+            df = self._process_single_stock(df)
+            df = df.dropna() 
+            
+            # Get stock identifier
+            stock_id = self.config.stock_identifier_mapping[symbol]
+            stock_ids.extend([stock_id] * len(df))
+            
+            # Store features and targets
+            features = df[feature_names].values
+            targets = df[['High', 'Low', 'Close']].values
+            
+            combined_features.append(features)
+            combined_targets.append(targets)
+        
+        # Combine all data
+        X_np = np.concatenate(combined_features, axis=0)
+        y = np.concatenate(combined_targets, axis=0)
+        stock_ids = np.array(stock_ids)
 
-    def preprocess(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, MinMaxScaler]:
-        # Step 1: Calculate Technical Indicators
-        df = TechnicalIndicators.calculate_all(df)
+        X = pd.DataFrame(X_np, columns=feature_names)
 
-        # Step 2: Verify Required Features
-        required_features = set(self.config.get_active_features())
-        if not required_features.issubset(df.columns):
-            missing_features = required_features - set(df.columns)
-            raise ValueError(f"Preprocessed data is missing required features: {missing_features}")
+        if np.any(np.isnan(X.values)) or np.any(np.isinf(X.values)):
+            raise ValueError("NaN or Inf detected in features before scaling.")
+        if np.any(np.isnan(y)) or np.any(np.isinf(y)):
+            raise ValueError("NaN or Inf detected in targets before scaling.")
 
-        # Step 3: Drop NaN values
-        df.dropna(inplace=True)
+        # Fit scalers
+        self.feature_scaler.fit(X)
+        self.target_scaler.fit(y)
+        # Scale features and targets
+        X_scaled = self.feature_scaler.transform(X)
+        y_scaled = self.target_scaler.transform(y)
+        X_scaled = np.clip(X_scaled, 0, 1)
+        y_scaled = np.clip(y_scaled, 0, 1)
+        print("X_scaled min:", X_scaled.min(), "max:", X_scaled.max())
+        print("y_scaled min:", y_scaled.min(), "max:", y_scaled.max())
+ 
+        # Create sequences with stock IDs
+        return self._create_sequences_with_ids(X_scaled, y_scaled, stock_ids), self.feature_scaler, self.target_scaler
 
-        # Step 4: Scale Selected Features
-        scaled_features = [f for f in self.config.base_features if 'return' not in f]  # Don't scale returns
-        raw_features = [f for f in self.config.base_features if 'return' in f]
-
-        scaled_data = self.scaler.fit_transform(df[scaled_features])
-        raw_data = df[raw_features].values
-
-        # Combine Scaled and Raw Features
-        combined_data = np.hstack([raw_data, scaled_data])
-
-        # Step 5: Create Sequences
-        X, y = self._create_sequences(combined_data)
-        return X, y, self.scaler
-
-    def _create_sequences(self, data: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        X, y = [], []
-        for i in range(self.config.time_steps, len(data)):
-            X.append(data[i - self.config.time_steps:i])
-            y.append(data[i, :3])  # Predicting High, Low, Close
-        return np.array(X), np.array(y)
+    def _create_sequences_with_ids(self, features: np.ndarray, 
+                                 targets: np.ndarray, 
+                                 stock_ids: np.ndarray) -> Tuple[Dict[str, np.ndarray], np.ndarray]:
+        X, y, ids = [], [], []
+        
+        for i in range(self.config.time_steps, len(features)):
+            X.append(features[i - self.config.time_steps:i])
+            y.append(targets[i])
+            ids.append(stock_ids[i])
+            
+        return {
+            'price_input': np.array(X),
+            'stock_input': np.array(ids)
+        }, np.array(y)
